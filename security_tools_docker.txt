@@ -1,0 +1,143 @@
+FROM kalilinux/kali-rolling:latest
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV GOPATH=/root/go
+ENV PATH=$PATH:/root/go/bin:/usr/local/go/bin
+
+# Update and install base dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    curl \
+    git \
+    build-essential \
+    python3 \
+    python3-pip \
+    python3-dev \
+    ruby \
+    ruby-dev \
+    libssl-dev \
+    libffi-dev \
+    libxml2-dev \
+    libxslt1-dev \
+    zlib1g-dev \
+    postgresql \
+    postgresql-contrib \
+    redis-server \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    unzip \
+    software-properties-common \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go (required for many tools)
+RUN wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz && \
+    rm go1.21.5.linux-amd64.tar.gz
+
+# 1. Install Nmap (from source)
+RUN cd /tmp && \
+    wget https://nmap.org/dist/nmap-7.94.tar.bz2 && \
+    tar xjf nmap-7.94.tar.bz2 && \
+    cd nmap-7.94 && \
+    ./configure && \
+    make && \
+    make install && \
+    cd / && rm -rf /tmp/nmap-7.94*
+
+# 2. Install Nuclei (from source)
+RUN go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
+    nuclei -update-templates
+
+# 3. Install Metasploit Framework
+RUN cd /opt && \
+    curl https://raw.githubusercontent.com/rapid7/metasploit-omnibus/master/config/templates/metasploit-framework-wrappers/msfupdate.erb > msfinstall && \
+    chmod 755 msfinstall && \
+    ./msfinstall
+
+# 4. Install Amass (from source)
+RUN go install -v github.com/owasp-amass/amass/v4/...@master
+
+# 5. Install Ffuf (from source)
+RUN go install github.com/ffuf/ffuf/v2@latest
+
+# 6. Install Masscan (from source)
+RUN cd /opt && \
+    git clone https://github.com/robertdavidgraham/masscan && \
+    cd masscan && \
+    make && \
+    make install
+
+# 7. Install Spiderfoot
+RUN cd /opt && \
+    git clone https://github.com/smicallef/spiderfoot.git && \
+    cd spiderfoot && \
+    pip3 install -r requirements.txt --break-system-packages
+
+# 8. Install Osmedeus
+RUN cd /opt && \
+    git clone https://github.com/j3ssie/osmedeus && \
+    cd osmedeus && \
+    go install && \
+    osmedeus config init
+
+# 9. Install OpenVAS (GVM)
+RUN apt-get update && apt-get install -y \
+    gvm \
+    openvas \
+    && rm -rf /var/lib/apt/lists/*
+
+# Setup OpenVAS
+RUN gvm-setup && \
+    gvm-feed-update
+
+# 10. Install Acunetix (Trial/Community Edition setup)
+# Note: Acunetix is commercial software. This creates a directory for manual installation
+RUN mkdir -p /opt/acunetix && \
+    echo "Acunetix requires manual license. Place installer in /opt/acunetix/" > /opt/acunetix/README.txt
+
+# Install additional useful tools
+RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
+    go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest && \
+    go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
+
+# Install Sqlmap
+RUN cd /opt && \
+    git clone --depth 1 https://github.com/sqlmapproject/sqlmap.git sqlmap-dev
+
+# Create workspace directory
+RUN mkdir -p /workspace /root/.config
+
+# Setup entrypoint script
+RUN echo '#!/bin/bash\n\
+echo "================================="\n\
+echo "Security Testing Tools Container"\n\
+echo "================================="\n\
+echo ""\n\
+echo "Available Tools:"\n\
+echo "1. nmap - Network scanner"\n\
+echo "2. nuclei - Vulnerability scanner"\n\
+echo "3. msfconsole - Metasploit Framework"\n\
+echo "4. amass - Subdomain enumeration"\n\
+echo "5. ffuf - Web fuzzer"\n\
+echo "6. masscan - Fast port scanner"\n\
+echo "7. spiderfoot - OSINT automation"\n\
+echo "8. osmedeus - Reconnaissance framework"\n\
+echo "9. openvas - Vulnerability scanner"\n\
+echo "10. sqlmap - SQL injection tool"\n\
+echo ""\n\
+echo "Additional tools: subfinder, httpx, naabu"\n\
+echo ""\n\
+echo "Workspace: /workspace"\n\
+echo "================================="\n\
+/bin/bash' > /entrypoint.sh && chmod +x /entrypoint.sh
+
+# Set working directory
+WORKDIR /workspace
+
+# Expose common ports
+EXPOSE 9390 9392 4444 8080 8081
+
+# Set entrypoint
+ENTRYPOINT ["/entrypoint.sh"]

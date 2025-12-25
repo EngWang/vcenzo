@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  security-tools:
+    build: .
+    container_name: security-toolkit
+    hostname: security-toolkit
+    privileged: true
+    network_mode: host
+    volumes:
+      - ./workspace:/workspace
+      - ./results:/results
+      - ./scripts:/scripts
+    environment:
+      - DISPLAY=${DISPLAY}
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
