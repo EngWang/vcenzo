@@ -20,11 +20,13 @@ RUN git clone https://github.com/projectdiscovery/nuclei.git && \
 # -------------------------
 # AMASS
 # -------------------------
-RUN wget https://github.com/owasp-amass/amass/releases/latest/download/amass_linux_amd64.zip && \
-    unzip amass_linux_amd64.zip && \
-    mv amass_linux_amd64/amass /usr/local/bin/ && \
-    rm -rf amass_linux_amd64*
-
+RUN curl -L -o amass.zip \
+    https://github.com/owasp-amass/amass/releases/download/v5.0.1/amass_Linux_amd64.zip && \
+    unzip amass.zip && \
+    mv amass_Linux_amd64/amass /usr/local/bin/ && \
+    chmod +x /usr/local/bin/amass && \
+    rm -rf amass.zip amass_Linux_amd64
+    
 # -------------------------
 # FFUF
 # -------------------------
