@@ -1,195 +1,125 @@
 FROM kalilinux/kali-rolling:latest
 
-# Thiết lập biến môi trường
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PATH="${PATH}:/opt/tools/bin"
+ENV DEBIAN_FRONTEND=noninteractive \
+    PATH="${PATH}:/root/go/bin" \
+    GOPATH="/root/go"
 
-# Cập nhật và cài đặt các dependencies cơ bản
+# Cài đặt dependencies cơ bản
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y \
-    wget curl git build-essential \
-    python3 python3-pip python3-dev \
+    build-essential \
+    wget curl git \
+    python3 python3-pip \
     golang-go \
-    libpcap-dev \
-    libssl-dev \
-    libsqlite3-dev \
+    libpcap-dev libssl-dev \
     postgresql postgresql-contrib \
     redis-server \
     unzip \
-    ca-certificates \
-    gnupg \
-    software-properties-common \
-    sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# Tạo thư mục cho các tools
-RUN mkdir -p /opt/tools/bin /opt/tools/wordlists
+WORKDIR /opt
 
 # ====================
-# 1. NMAP (từ source)
+# 1. NMAP
 # ====================
-RUN cd /tmp && \
-    wget https://nmap.org/dist/nmap-7.95.tar.bz2 && \
+RUN wget -q https://nmap.org/dist/nmap-7.95.tar.bz2 && \
     tar -xjf nmap-7.95.tar.bz2 && \
     cd nmap-7.95 && \
-    ./configure && \
-    make && \
-    make install && \
-    cd / && rm -rf /tmp/nmap-*
+    ./configure && make -j$(nproc) && make install && \
+    cd /opt && rm -rf nmap-*
 
 # ====================
-# 2. NUCLEI (từ source)
+# 2. NUCLEI
 # ====================
 RUN go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
-    cp /root/go/bin/nuclei /usr/local/bin/ && \
     nuclei -update-templates
 
 # ====================
-# 3. METASPLOIT (từ Kali repo - stable)
+# 3. METASPLOIT
 # ====================
 RUN apt-get update && \
     apt-get install -y metasploit-framework && \
-    rm -rf /var/lib/apt/lists/*
-
-# Khởi tạo Metasploit database
-RUN service postgresql start && \
-    msfdb init || true
+    rm -rf /var/lib/apt/lists/* && \
+    service postgresql start && msfdb init && service postgresql stop
 
 # ====================
-# 4. AMASS (từ source)
+# 4. AMASS
 # ====================
-RUN go install -v github.com/owasp-amass/amass/v4/...@master && \
-    cp /root/go/bin/amass /usr/local/bin/
+RUN go install -v github.com/owasp-amass/amass/v4/...@master
 
 # ====================
-# 5. FFUF (từ source)
+# 5. FFUF
 # ====================
-RUN go install github.com/ffuf/ffuf/v2@latest && \
-    cp /root/go/bin/ffuf /usr/local/bin/
+RUN go install github.com/ffuf/ffuf/v2@latest
 
 # ====================
-# 6. MASSCAN (từ source)
+# 6. MASSCAN
 # ====================
-RUN cd /opt/tools && \
-    git clone https://github.com/robertdavidgraham/masscan && \
-    cd masscan && \
-    make && \
-    make install
+RUN git clone https://github.com/robertdavidgraham/masscan.git && \
+    cd masscan && make -j$(nproc) && make install && \
+    cd /opt && rm -rf masscan
 
 # ====================
-# 7. SPIDERFOOT (từ source)
+# 7. SPIDERFOOT
 # ====================
-RUN cd /opt/tools && \
-    git clone https://github.com/smicallef/spiderfoot.git && \
+RUN git clone https://github.com/smicallef/spiderfoot.git && \
     cd spiderfoot && \
     pip3 install -r requirements.txt --break-system-packages
 
 # ====================
-# 8. OSMEDEUS (từ source)
+# 8. OSMEDEUS
 # ====================
-RUN cd /opt/tools && \
-    git clone https://github.com/j3ssie/osmedeus && \
+RUN git clone https://github.com/j3ssie/osmedeus.git && \
     cd osmedeus && \
-    go install && \
-    cp /root/go/bin/osmedeus /usr/local/bin/ || \
-    (cd /opt/tools/osmedeus && go build -o /usr/local/bin/osmedeus)
+    go build -o /usr/local/bin/osmedeus
 
 # ====================
-# 9. OPENVAS (GVM - Greenbone)
+# 9. OPENVAS
 # ====================
 RUN apt-get update && \
-    apt-get install -y \
-    gvm \
-    openvas \
-    && rm -rf /var/lib/apt/lists/*
-
-# Setup OpenVAS (cơ bản)
-RUN gvm-setup || true
+    apt-get install -y gvm openvas && \
+    rm -rf /var/lib/apt/lists/*
 
 # ====================
-# 10. Acunetix Replacement - OWASP ZAP
+# 10. ZAP (thay thế Acunetix)
 # ====================
-# Acunetix là phần mềm thương mại, thay thế bằng ZAP (mã nguồn mở)
 RUN apt-get update && \
     apt-get install -y zaproxy && \
     rm -rf /var/lib/apt/lists/*
 
 # ====================
-# Additional Tools
+# 11. ACUNETIX
 # ====================
+RUN mkdir -p /opt/acunetix && \
+    echo "Acunetix requires commercial license" > /opt/acunetix/README.txt && \
+    echo "Download from: https://www.acunetix.com/download/" >> /opt/acunetix/README.txt
 
-# Subfinder
-RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
-    cp /root/go/bin/subfinder /usr/local/bin/
+# Wordlists (cần thiết cho các tools)
+RUN git clone --depth 1 https://github.com/danielmiessler/SecLists.git /opt/wordlists
 
-# Httpx
-RUN go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest && \
-    cp /root/go/bin/httpx /usr/local/bin/
+# Symlink Go binaries
+RUN ln -s /root/go/bin/* /usr/local/bin/ 2>/dev/null || true
 
-# Katana (crawler)
-RUN go install github.com/projectdiscovery/katana/cmd/katana@latest && \
-    cp /root/go/bin/katana /usr/local/bin/
-
-# Gobuster
-RUN go install github.com/OJ/gobuster/v3@latest && \
-    cp /root/go/bin/gobuster /usr/local/bin/
-
-# Nikto
-RUN apt-get update && \
-    apt-get install -y nikto && \
-    rm -rf /var/lib/apt/lists/*
-
-# SQLMap
-RUN apt-get update && \
-    apt-get install -y sqlmap && \
-    rm -rf /var/lib/apt/lists/*
-
-# Download SecLists wordlists
-RUN cd /opt/tools/wordlists && \
-    git clone --depth 1 https://github.com/danielmiessler/SecLists.git
-
-# ====================
-# Cleanup
-# ====================
-RUN apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
-    go clean -cache -modcache
-
-# Tạo user non-root
-RUN useradd -m -s /bin/bash pentester && \
-    echo "pentester:pentester" | chpasswd && \
-    usermod -aG sudo pentester
-
-# ====================
-# Startup Script
-# ====================
+# Startup script
 RUN echo '#!/bin/bash\n\
-echo "================================="\n\
-echo "Security Tools Container Ready"\n\
-echo "================================="\n\
-echo "Installed Tools:"\n\
+echo "=== Security Tools Container ==="\n\
 echo "1. Nmap: $(nmap --version | head -1)"\n\
 echo "2. Nuclei: $(nuclei -version 2>&1 | head -1)"\n\
 echo "3. Metasploit: $(msfconsole --version)"\n\
 echo "4. Amass: $(amass --version)"\n\
 echo "5. Ffuf: $(ffuf -V)"\n\
 echo "6. Masscan: $(masscan --version | head -1)"\n\
-echo "7. Spiderfoot: Installed at /opt/tools/spiderfoot"\n\
-echo "8. Osmedeus: $(osmedeus version 2>&1 || echo \"Installed\")"\n\
-echo "9. OpenVAS/GVM: Use gvm-start to start services"\n\
-echo "10. ZAP Proxy: $(zap.sh -version 2>&1 | head -1)"\n\
-echo "================================="\n\
-echo "Additional tools: subfinder, httpx, katana, gobuster, nikto, sqlmap"\n\
-echo "Wordlists: /opt/tools/wordlists/SecLists"\n\
-echo "================================="\n\
+echo "7. Spiderfoot: /opt/spiderfoot"\n\
+echo "8. Osmedeus: $(osmedeus version 2>&1 || echo Installed)"\n\
+echo "9. OpenVAS: $(which gvm)"\n\
+echo "10. ZAP: $(zap.sh -version 2>&1 | head -1)"\n\
+echo "11. Acunetix: See /opt/acunetix/README.txt"\n\
+echo "================================"\n\
 service postgresql start\n\
 service redis-server start\n\
 exec /bin/bash\n\
 ' > /entrypoint.sh && chmod +x /entrypoint.sh
 
-WORKDIR /root
-
-# Expose common ports
-EXPOSE 4444 8080 9390 9392
+EXPOSE 4444 8080 9392
 
 ENTRYPOINT ["/entrypoint.sh"]
