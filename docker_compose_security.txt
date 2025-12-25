@@ -3,16 +3,32 @@ version: '3.8'
 services:
   security-tools:
     build: .
-    container_name: security-toolkit
-    hostname: security-toolkit
+    container_name: security-pentest
+    hostname: pentest-lab
     privileged: true
-    network_mode: host
+    networks:
+      - pentest_network
+    ports:
+      - "4444:4444"    # Metasploit
+      - "8080:8080"    # Spiderfoot Web UI
+      - "9390:9390"    # OpenVAS Web UI
+      - "9392:9392"    # OpenVAS Manager
+      - "5001:5001"    # ZAP API
     volumes:
-      - ./workspace:/workspace
+      - pentest_data:/root/pentest
+      - ./shared:/shared
       - ./results:/results
-      - ./scripts:/scripts
     environment:
       - DISPLAY=${DISPLAY}
+      - POSTGRES_PASSWORD=postgres
     stdin_open: true
     tty: true
     restart: unless-stopped
+
+volumes:
+  pentest_data:
+    driver: local
+
+networks:
+  pentest_network:
+    driver: bridge
