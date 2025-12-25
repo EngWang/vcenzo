@@ -1,143 +1,195 @@
 FROM kalilinux/kali-rolling:latest
 
-# Set environment variables
+# Thiết lập biến môi trường
 ENV DEBIAN_FRONTEND=noninteractive
-ENV GOPATH=/root/go
-ENV PATH=$PATH:/root/go/bin:/usr/local/go/bin
+ENV PATH="${PATH}:/opt/tools/bin"
 
-# Update and install base dependencies
-RUN apt-get update && apt-get install -y \
-    wget \
-    curl \
-    git \
-    build-essential \
-    python3 \
-    python3-pip \
-    python3-dev \
-    ruby \
-    ruby-dev \
+# Cập nhật và cài đặt các dependencies cơ bản
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y \
+    wget curl git build-essential \
+    python3 python3-pip python3-dev \
+    golang-go \
+    libpcap-dev \
     libssl-dev \
-    libffi-dev \
-    libxml2-dev \
-    libxslt1-dev \
-    zlib1g-dev \
-    postgresql \
-    postgresql-contrib \
+    libsqlite3-dev \
+    postgresql postgresql-contrib \
     redis-server \
+    unzip \
     ca-certificates \
     gnupg \
-    lsb-release \
-    unzip \
     software-properties-common \
+    sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Go (required for many tools)
-RUN wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz && \
-    tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz && \
-    rm go1.21.5.linux-amd64.tar.gz
+# Tạo thư mục cho các tools
+RUN mkdir -p /opt/tools/bin /opt/tools/wordlists
 
-# 1. Install Nmap (from source)
+# ====================
+# 1. NMAP (từ source)
+# ====================
 RUN cd /tmp && \
-    wget https://nmap.org/dist/nmap-7.94.tar.bz2 && \
-    tar xjf nmap-7.94.tar.bz2 && \
-    cd nmap-7.94 && \
+    wget https://nmap.org/dist/nmap-7.95.tar.bz2 && \
+    tar -xjf nmap-7.95.tar.bz2 && \
+    cd nmap-7.95 && \
     ./configure && \
     make && \
     make install && \
-    cd / && rm -rf /tmp/nmap-7.94*
+    cd / && rm -rf /tmp/nmap-*
 
-# 2. Install Nuclei (from source)
+# ====================
+# 2. NUCLEI (từ source)
+# ====================
 RUN go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
+    cp /root/go/bin/nuclei /usr/local/bin/ && \
     nuclei -update-templates
 
-# 3. Install Metasploit Framework
-RUN cd /opt && \
-    curl https://raw.githubusercontent.com/rapid7/metasploit-omnibus/master/config/templates/metasploit-framework-wrappers/msfupdate.erb > msfinstall && \
-    chmod 755 msfinstall && \
-    ./msfinstall
+# ====================
+# 3. METASPLOIT (từ Kali repo - stable)
+# ====================
+RUN apt-get update && \
+    apt-get install -y metasploit-framework && \
+    rm -rf /var/lib/apt/lists/*
 
-# 4. Install Amass (from source)
-RUN go install -v github.com/owasp-amass/amass/v4/...@master
+# Khởi tạo Metasploit database
+RUN service postgresql start && \
+    msfdb init || true
 
-# 5. Install Ffuf (from source)
-RUN go install github.com/ffuf/ffuf/v2@latest
+# ====================
+# 4. AMASS (từ source)
+# ====================
+RUN go install -v github.com/owasp-amass/amass/v4/...@master && \
+    cp /root/go/bin/amass /usr/local/bin/
 
-# 6. Install Masscan (from source)
-RUN cd /opt && \
+# ====================
+# 5. FFUF (từ source)
+# ====================
+RUN go install github.com/ffuf/ffuf/v2@latest && \
+    cp /root/go/bin/ffuf /usr/local/bin/
+
+# ====================
+# 6. MASSCAN (từ source)
+# ====================
+RUN cd /opt/tools && \
     git clone https://github.com/robertdavidgraham/masscan && \
     cd masscan && \
     make && \
     make install
 
-# 7. Install Spiderfoot
-RUN cd /opt && \
+# ====================
+# 7. SPIDERFOOT (từ source)
+# ====================
+RUN cd /opt/tools && \
     git clone https://github.com/smicallef/spiderfoot.git && \
     cd spiderfoot && \
     pip3 install -r requirements.txt --break-system-packages
 
-# 8. Install Osmedeus
-RUN cd /opt && \
+# ====================
+# 8. OSMEDEUS (từ source)
+# ====================
+RUN cd /opt/tools && \
     git clone https://github.com/j3ssie/osmedeus && \
     cd osmedeus && \
     go install && \
-    osmedeus config init
+    cp /root/go/bin/osmedeus /usr/local/bin/ || \
+    (cd /opt/tools/osmedeus && go build -o /usr/local/bin/osmedeus)
 
-# 9. Install OpenVAS (GVM)
-RUN apt-get update && apt-get install -y \
+# ====================
+# 9. OPENVAS (GVM - Greenbone)
+# ====================
+RUN apt-get update && \
+    apt-get install -y \
     gvm \
     openvas \
     && rm -rf /var/lib/apt/lists/*
 
-# Setup OpenVAS
-RUN gvm-setup && \
-    gvm-feed-update
+# Setup OpenVAS (cơ bản)
+RUN gvm-setup || true
 
-# 10. Install Acunetix (Trial/Community Edition setup)
-# Note: Acunetix is commercial software. This creates a directory for manual installation
-RUN mkdir -p /opt/acunetix && \
-    echo "Acunetix requires manual license. Place installer in /opt/acunetix/" > /opt/acunetix/README.txt
+# ====================
+# 10. Acunetix Replacement - OWASP ZAP
+# ====================
+# Acunetix là phần mềm thương mại, thay thế bằng ZAP (mã nguồn mở)
+RUN apt-get update && \
+    apt-get install -y zaproxy && \
+    rm -rf /var/lib/apt/lists/*
 
-# Install additional useful tools
+# ====================
+# Additional Tools
+# ====================
+
+# Subfinder
 RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
-    go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest && \
-    go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
+    cp /root/go/bin/subfinder /usr/local/bin/
 
-# Install Sqlmap
-RUN cd /opt && \
-    git clone --depth 1 https://github.com/sqlmapproject/sqlmap.git sqlmap-dev
+# Httpx
+RUN go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest && \
+    cp /root/go/bin/httpx /usr/local/bin/
 
-# Create workspace directory
-RUN mkdir -p /workspace /root/.config
+# Katana (crawler)
+RUN go install github.com/projectdiscovery/katana/cmd/katana@latest && \
+    cp /root/go/bin/katana /usr/local/bin/
 
-# Setup entrypoint script
+# Gobuster
+RUN go install github.com/OJ/gobuster/v3@latest && \
+    cp /root/go/bin/gobuster /usr/local/bin/
+
+# Nikto
+RUN apt-get update && \
+    apt-get install -y nikto && \
+    rm -rf /var/lib/apt/lists/*
+
+# SQLMap
+RUN apt-get update && \
+    apt-get install -y sqlmap && \
+    rm -rf /var/lib/apt/lists/*
+
+# Download SecLists wordlists
+RUN cd /opt/tools/wordlists && \
+    git clone --depth 1 https://github.com/danielmiessler/SecLists.git
+
+# ====================
+# Cleanup
+# ====================
+RUN apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+    go clean -cache -modcache
+
+# Tạo user non-root
+RUN useradd -m -s /bin/bash pentester && \
+    echo "pentester:pentester" | chpasswd && \
+    usermod -aG sudo pentester
+
+# ====================
+# Startup Script
+# ====================
 RUN echo '#!/bin/bash\n\
 echo "================================="\n\
-echo "Security Testing Tools Container"\n\
+echo "Security Tools Container Ready"\n\
 echo "================================="\n\
-echo ""\n\
-echo "Available Tools:"\n\
-echo "1. nmap - Network scanner"\n\
-echo "2. nuclei - Vulnerability scanner"\n\
-echo "3. msfconsole - Metasploit Framework"\n\
-echo "4. amass - Subdomain enumeration"\n\
-echo "5. ffuf - Web fuzzer"\n\
-echo "6. masscan - Fast port scanner"\n\
-echo "7. spiderfoot - OSINT automation"\n\
-echo "8. osmedeus - Reconnaissance framework"\n\
-echo "9. openvas - Vulnerability scanner"\n\
-echo "10. sqlmap - SQL injection tool"\n\
-echo ""\n\
-echo "Additional tools: subfinder, httpx, naabu"\n\
-echo ""\n\
-echo "Workspace: /workspace"\n\
+echo "Installed Tools:"\n\
+echo "1. Nmap: $(nmap --version | head -1)"\n\
+echo "2. Nuclei: $(nuclei -version 2>&1 | head -1)"\n\
+echo "3. Metasploit: $(msfconsole --version)"\n\
+echo "4. Amass: $(amass --version)"\n\
+echo "5. Ffuf: $(ffuf -V)"\n\
+echo "6. Masscan: $(masscan --version | head -1)"\n\
+echo "7. Spiderfoot: Installed at /opt/tools/spiderfoot"\n\
+echo "8. Osmedeus: $(osmedeus version 2>&1 || echo \"Installed\")"\n\
+echo "9. OpenVAS/GVM: Use gvm-start to start services"\n\
+echo "10. ZAP Proxy: $(zap.sh -version 2>&1 | head -1)"\n\
 echo "================================="\n\
-/bin/bash' > /entrypoint.sh && chmod +x /entrypoint.sh
+echo "Additional tools: subfinder, httpx, katana, gobuster, nikto, sqlmap"\n\
+echo "Wordlists: /opt/tools/wordlists/SecLists"\n\
+echo "================================="\n\
+service postgresql start\n\
+service redis-server start\n\
+exec /bin/bash\n\
+' > /entrypoint.sh && chmod +x /entrypoint.sh
 
-# Set working directory
-WORKDIR /workspace
+WORKDIR /root
 
 # Expose common ports
-EXPOSE 9390 9392 4444 8080 8081
+EXPOSE 4444 8080 9390 9392
 
-# Set entrypoint
 ENTRYPOINT ["/entrypoint.sh"]
